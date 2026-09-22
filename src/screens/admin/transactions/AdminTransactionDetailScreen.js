@@ -1,4 +1,3 @@
-
 import React, {
   useCallback,
   useEffect,
@@ -12,7 +11,15 @@ import {
   Text,
   Pressable,
   StyleSheet,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
+
+import {
+  BlurView,
+} from 'expo-blur';
 
 import {
   Ionicons,
@@ -78,13 +85,6 @@ const TERMINAL_STATUSES = [
  * ADMIN TRANSACTION ACTION
  * ============================================================ */
 
-/**
- * Toutes les actions administrateur passent par l'Edge Function
- * `admin-transaction-action`.
- *
- * Cela évite de dupliquer la logique métier côté mobile et garantit
- * que les vérifications admin restent exécutées côté serveur.
- */
 async function executeAdminTransactionAction({
   transactionId,
   action,
@@ -122,10 +122,6 @@ async function executeAdminTransactionAction({
       }
     );
 
-  /*
-   * Supabase peut retourner une FunctionsHttpError avec
-   * un corps JSON contenant le vrai message de l'Edge Function.
-   */
   if (error) {
     let message =
       error?.message ||
@@ -151,7 +147,7 @@ async function executeAdminTransactionAction({
         }
       }
     } catch (_) {
-      // On conserve le message Supabase si le body ne peut pas être lu.
+      // Conservation du message Supabase.
     }
 
     const actionError =
@@ -525,6 +521,27 @@ export default function AdminTransactionDetailScreen({
   ] =
     useState(false);
 
+  /*
+   * Modal de rejet
+   */
+  const [
+    rejectModalVisible,
+    setRejectModalVisible,
+  ] =
+    useState(false);
+
+  const [
+    rejectReason,
+    setRejectReason,
+  ] =
+    useState('');
+
+  const [
+    rejectReasonError,
+    setRejectReasonError,
+  ] =
+    useState('');
+
 
   /* ==========================================================
    * LOAD
@@ -579,6 +596,108 @@ export default function AdminTransactionDetailScreen({
 
 
   /* ==========================================================
+   * REJECT MODAL
+   * ========================================================== */
+
+  const openRejectModal =
+    () => {
+      setRejectReason(
+        ''
+      );
+
+      setRejectReasonError(
+        ''
+      );
+
+      setRejectModalVisible(
+        true
+      );
+    };
+
+
+  const closeRejectModal =
+    () => {
+      if (
+        actionLoading
+      ) {
+        return;
+      }
+
+      setRejectModalVisible(
+        false
+      );
+
+      setRejectReason(
+        ''
+      );
+
+      setRejectReasonError(
+        ''
+      );
+    };
+
+
+  const handleConfirmReject =
+    async () => {
+      const reason =
+        String(
+          rejectReason ||
+            ''
+        ).trim();
+
+      if (!reason) {
+        setRejectReasonError(
+          'La raison est obligatoire.'
+        );
+
+        return;
+      }
+
+      if (
+        reason.length <
+        3
+      ) {
+        setRejectReasonError(
+          'Minimum 3 caractères.'
+        );
+
+        return;
+      }
+
+      setRejectReasonError(
+        ''
+      );
+
+      const success =
+        await act(
+          rejectTransaction,
+
+          'Transaction rejetée',
+
+          {
+            reason,
+          }
+        );
+
+      if (
+        success
+      ) {
+        setRejectModalVisible(
+          false
+        );
+
+        setRejectReason(
+          ''
+        );
+
+        setRejectReasonError(
+          ''
+        );
+      }
+    };
+
+
+  /* ==========================================================
    * ACTION
    * ========================================================== */
 
@@ -589,11 +708,6 @@ export default function AdminTransactionDetailScreen({
       options = {}
     ) => {
       try {
-        /*
-         * Sécurité supplémentaire :
-         * on évite exactement l'erreur
-         * "fn is not a function".
-         */
         if (
           typeof fn !==
           'function'
@@ -624,6 +738,8 @@ export default function AdminTransactionDetailScreen({
         );
 
         await load();
+
+        return true;
       } catch (
         e
       ) {
@@ -636,10 +752,6 @@ export default function AdminTransactionDetailScreen({
           e?.message ||
           'Une erreur est survenue.';
 
-        /*
-         * Messages plus explicites pour les cas métier
-         * déjà gérés par l'Edge Function.
-         */
         if (
           e?.code ===
           'EXECUTION_PROOF_REQUIRED'
@@ -665,10 +777,20 @@ export default function AdminTransactionDetailScreen({
             'Votre compte administrateur est désactivé.';
         }
 
+        if (
+          e?.code ===
+          'REASON_REQUIRED'
+        ) {
+          message =
+            'Une raison est obligatoire pour cette action.';
+        }
+
         Alert.alert(
           'Erreur',
           message
         );
+
+        return false;
       } finally {
         setActionLoading(
           false
@@ -873,9 +995,7 @@ export default function AdminTransactionDetailScreen({
         }
       >
 
-        {/* ====================================================
-         * STATUS + REFERENCE
-         * ==================================================== */}
+        {/* STATUS + REFERENCE */}
 
         <View
           style={[
@@ -968,9 +1088,7 @@ export default function AdminTransactionDetailScreen({
         </View>
 
 
-        {/* ====================================================
-         * AMOUNT
-         * ==================================================== */}
+        {/* AMOUNT */}
 
         <View
           style={
@@ -980,13 +1098,10 @@ export default function AdminTransactionDetailScreen({
           <View
             style={{
               flex: 1,
-
               flexDirection:
                 'row',
-
               alignItems:
                 'center',
-
               gap:
                 spacing.xs,
             }}
@@ -1019,7 +1134,6 @@ export default function AdminTransactionDetailScreen({
                 {
                   color:
                     typeMeta.color,
-
                   bottom:
                     4,
                 },
@@ -1038,7 +1152,6 @@ export default function AdminTransactionDetailScreen({
                 lineHeight:
                   spacing.md *
                   1.4,
-
                 fontWeight:
                   fontWeights.semiBold,
               },
@@ -1053,9 +1166,7 @@ export default function AdminTransactionDetailScreen({
         </View>
 
 
-        {/* ====================================================
-         * PARTIES
-         * ==================================================== */}
+        {/* PARTIES */}
 
         <View
           style={
@@ -1115,10 +1226,8 @@ export default function AdminTransactionDetailScreen({
           <View
             style={{
               flex: 1,
-
               justifyContent:
                 'flex-end',
-
               alignItems:
                 'flex-end',
             }}
@@ -1163,9 +1272,7 @@ export default function AdminTransactionDetailScreen({
         </View>
 
 
-        {/* ====================================================
-         * GENERAL INFORMATION
-         * ==================================================== */}
+        {/* GENERAL INFORMATION */}
 
         <Pressable
           style={
@@ -1251,9 +1358,7 @@ export default function AdminTransactionDetailScreen({
         ) : null}
 
 
-        {/* ====================================================
-         * TRACKING + PROOF
-         * ==================================================== */}
+        {/* TRACKING + PROOF */}
 
         <View
           style={
@@ -1315,7 +1420,6 @@ export default function AdminTransactionDetailScreen({
             </View>
           </View>
 
-
           {steps.map(
             (
               step,
@@ -1336,7 +1440,6 @@ export default function AdminTransactionDetailScreen({
               />
             )
           )}
-
 
           <View
             style={
@@ -1370,7 +1473,7 @@ export default function AdminTransactionDetailScreen({
             </Text>
 
             <Pressable
-              style={({
+              style={( {
                 pressed,
               }) => [
                 local.proofButton,
@@ -1405,9 +1508,7 @@ export default function AdminTransactionDetailScreen({
         </View>
 
 
-        {/* ====================================================
-         * CANCEL
-         * ==================================================== */}
+        {/* CANCEL */}
 
         {!terminal ? (
           <Pressable
@@ -1450,9 +1551,7 @@ export default function AdminTransactionDetailScreen({
         ) : null}
 
 
-        {/* ====================================================
-         * TERMINAL NOTICE / ACTIONS
-         * ==================================================== */}
+        {/* TERMINAL NOTICE / ACTIONS */}
 
         {terminal ? (
           <View
@@ -1509,19 +1608,8 @@ export default function AdminTransactionDetailScreen({
                 disabled={
                   actionLoading
                 }
-                onPress={() =>
-                  confirmAct(
-                    rejectTransaction,
-
-                    'Transaction rejetée',
-
-                    'Voulez-vous rejeter cette transaction ? Cette action est irréversible.',
-
-                    {
-                      destructive:
-                        true,
-                    }
-                  )
+                onPress={
+                  openRejectModal
                 }
               />
             </View>
@@ -1552,6 +1640,319 @@ export default function AdminTransactionDetailScreen({
           </View>
         )}
       </ScrollView>
+
+
+      {/* ========================================================
+       * REJECTION MODAL
+       * ======================================================== */}
+
+      <Modal
+        visible={
+          rejectModalVisible
+        }
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={
+          closeRejectModal
+        }
+      >
+        <KeyboardAvoidingView
+          behavior={
+            Platform.OS ===
+            'ios'
+              ? 'padding'
+              : undefined
+          }
+          style={
+            local.modalRoot
+          }
+        >
+          <View
+            style={
+              local.modalOverlay
+            }
+          >
+            {/* =================================================
+             * FULL SCREEN BLUR
+             * ================================================= */}
+
+            <BlurView
+              intensity={22}
+              tint="dark"
+              experimentalBlurMethod={
+                Platform.OS ===
+                'android'
+                  ? 'dimezisBlurView'
+                  : undefined
+              }
+              style={
+                StyleSheet.absoluteFillObject
+              }
+            />
+
+            {/* Léger voile supplémentaire, beaucoup moins sombre */}
+            <View
+              pointerEvents="none"
+              style={
+                local.modalTint
+              }
+            />
+
+            {/* =================================================
+             * BACKDROP PRESS
+             * ================================================= */}
+
+            <Pressable
+              style={
+                StyleSheet.absoluteFillObject
+              }
+              onPress={
+                closeRejectModal
+              }
+            />
+
+            {/* =================================================
+             * MODAL CONTENT
+             * ================================================= */}
+
+            <View
+              style={
+                local.modalContentWrapper
+              }
+            >
+              <Pressable
+                style={
+                  local.rejectModal
+                }
+                onPress={(
+                  e
+                ) =>
+                  e.stopPropagation()
+                }
+              >
+
+                {/* HEADER */}
+
+                <View
+                  style={
+                    local.rejectModalHeader
+                  }
+                >
+                  <View
+                    style={
+                      local.rejectModalTitleWrap
+                    }
+                  >
+                    <Text
+                      style={[
+                        typography.bodyBold,
+                        local.rejectModalTitle,
+                      ]}
+                    >
+                      Rejeter la transaction
+                    </Text>
+
+                    <Text
+                      style={
+                        local.rejectModalSubtitle
+                      }
+                    >
+                      La raison est obligatoire.
+                    </Text>
+                  </View>
+
+                  <Pressable
+                    disabled={
+                      actionLoading
+                    }
+                    hitSlop={
+                      8
+                    }
+                    style={( {
+                      pressed,
+                    }) => [
+                      local.modalCloseButton,
+
+                      pressed && {
+                        opacity:
+                          0.65,
+                      },
+                    ]}
+                    onPress={
+                      closeRejectModal
+                    }
+                  >
+                    <Ionicons
+                      name="close"
+                      size={20}
+                      color={
+                        colors.text.secondary
+                      }
+                    />
+                  </Pressable>
+                </View>
+
+
+                {/* INPUT */}
+
+                <Text
+                  style={
+                    local.inputLabel
+                  }
+                >
+                  Raison du rejet
+                </Text>
+
+                <TextInput
+                  value={
+                    rejectReason
+                  }
+                  onChangeText={(
+                    text
+                  ) => {
+                    setRejectReason(
+                      text
+                    );
+
+                    if (
+                      rejectReasonError
+                    ) {
+                      setRejectReasonError(
+                        ''
+                      );
+                    }
+                  }}
+                  placeholder="Saisissez la raison..."
+                  placeholderTextColor={
+                    colors.text.tertiary
+                  }
+                  multiline
+                  numberOfLines={
+                    4
+                  }
+                  maxLength={
+                    500
+                  }
+                  editable={
+                    !actionLoading
+                  }
+                  textAlignVertical="top"
+                  style={[
+                    local.reasonInput,
+
+                    rejectReasonError && {
+                      borderColor:
+                        colors.error.default,
+
+                      backgroundColor:
+                        colors.error.light,
+                    },
+                  ]}
+                  autoFocus
+                />
+
+
+                {/* ERROR */}
+
+                {rejectReasonError ? (
+                  <View
+                    style={
+                      local.inputErrorRow
+                    }
+                  >
+                    <Ionicons
+                      name="alert-circle-outline"
+                      size={14}
+                      color={
+                        colors.error.default
+                      }
+                    />
+
+                    <Text
+                      style={
+                        local.inputErrorText
+                      }
+                    >
+                      {
+                        rejectReasonError
+                      }
+                    </Text>
+                  </View>
+                ) : null}
+
+
+                {/* FOOTER */}
+
+                <View
+                  style={
+                    local.inputFooter
+                  }
+                >
+                  <Text
+                    style={
+                      local.counterText
+                    }
+                  >
+                    {
+                      rejectReason.length
+                    }
+                    /500
+                  </Text>
+                </View>
+
+
+                {/* ACTIONS */}
+
+                <View
+                  style={
+                    local.modalActions
+                  }
+                >
+                  <View
+                    style={{
+                      flex: 1,
+                    }}
+                  >
+                    <Button
+                      title="Annuler"
+                      variant="outline"
+                      disabled={
+                        actionLoading
+                      }
+                      onPress={
+                        closeRejectModal
+                      }
+                    />
+                  </View>
+
+                  <View
+                    style={{
+                      flex: 1,
+                    }}
+                  >
+                    <Button
+                      title="Confirmer"
+                      variant="primary"
+                      loading={
+                        actionLoading
+                      }
+                      disabled={
+                        actionLoading ||
+                        !rejectReason.trim()
+                      }
+                      onPress={
+                        handleConfirmReject
+                      }
+                    />
+                  </View>
+                </View>
+
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </Screen>
   );
 }
@@ -2210,6 +2611,248 @@ const local =
      * ------------------------------------------ */
 
     bottomActionsRow: {
+      flexDirection:
+        'row',
+
+      gap:
+        spacing.sm,
+    },
+
+
+    /* ------------------------------------------
+     * MODAL / BLUR
+     * ------------------------------------------ */
+
+    modalRoot: {
+      flex: 1,
+    },
+
+    /*
+     * Très important :
+     * aucun padding ici.
+     * Le blur doit couvrir 100% de l'écran.
+     */
+    modalOverlay: {
+      flex: 1,
+
+      width:
+        '100%',
+
+      height:
+        '100%',
+
+      justifyContent:
+        'center',
+
+      alignItems:
+        'center',
+
+      position:
+        'relative',
+
+      overflow:
+        'hidden',
+    },
+
+    /*
+     * Léger voile transparent par-dessus le BlurView.
+     * Beaucoup plus discret que l'ancien rgba(0,0,0,0.52).
+     */
+    modalTint: {
+      ...StyleSheet.absoluteFillObject,
+
+      backgroundColor:
+        'rgba(0,0,0,0.12)',
+    },
+
+    /*
+     * Le padding est déplacé ici.
+     * Ainsi les marges sont elles aussi floutées.
+     */
+    modalContentWrapper: {
+      width:
+        '100%',
+
+      paddingHorizontal:
+        spacing.md,
+
+      alignItems:
+        'center',
+
+      zIndex:
+        2,
+    },
+
+    rejectModal: {
+      width:
+        '100%',
+
+      maxWidth:
+        460,
+
+      backgroundColor:
+        colors.background.surface,
+
+      borderRadius:
+        radii.lg,
+
+      padding:
+        spacing.md,
+
+      borderWidth:
+        1,
+
+      borderColor:
+        colors.border.light,
+
+      ...shadows.card,
+    },
+
+    rejectModalHeader: {
+      flexDirection:
+        'row',
+
+      alignItems:
+        'flex-start',
+
+      justifyContent:
+        'space-between',
+
+      marginBottom:
+        spacing.md,
+    },
+
+    rejectModalTitleWrap: {
+      flex: 1,
+
+      paddingRight:
+        spacing.sm,
+    },
+
+    rejectModalTitle: {
+      color:
+        colors.text.primary,
+
+      marginBottom:
+        spacing.xxs,
+    },
+
+    rejectModalSubtitle: {
+      ...typography.caption,
+
+      color:
+        colors.text.secondary,
+
+      lineHeight:
+        lineHeights.md,
+    },
+
+    modalCloseButton: {
+      width:
+        32,
+
+      height:
+        32,
+
+      borderRadius:
+        radii.circle,
+
+      alignItems:
+        'center',
+
+      justifyContent:
+        'center',
+
+      backgroundColor:
+        colors.background.subtle,
+    },
+
+    inputLabel: {
+      ...typography.caption,
+
+      fontWeight:
+        fontWeights.semiBold,
+
+      color:
+        colors.text.primary,
+
+      marginBottom:
+        spacing.xs,
+    },
+
+    reasonInput: {
+      minHeight:
+        110,
+
+      maxHeight:
+        160,
+
+      borderWidth:
+        1,
+
+      borderColor:
+        colors.border.default,
+
+      borderRadius:
+        radii.sm,
+
+      backgroundColor:
+        colors.background.subtle,
+
+      color:
+        colors.text.primary,
+
+      paddingHorizontal:
+        spacing.sm,
+
+      paddingVertical:
+        spacing.sm,
+
+      ...typography.caption,
+    },
+
+    inputErrorRow: {
+      flexDirection:
+        'row',
+
+      alignItems:
+        'center',
+
+      gap:
+        spacing.xxs,
+
+      marginTop:
+        spacing.xs,
+    },
+
+    inputErrorText: {
+      ...typography.caption,
+
+      color:
+        colors.error.default,
+
+      flex: 1,
+    },
+
+    inputFooter: {
+      alignItems:
+        'flex-end',
+
+      marginTop:
+        spacing.xxs,
+
+      marginBottom:
+        spacing.md,
+    },
+
+    counterText: {
+      ...typography.overline,
+
+      color:
+        colors.text.tertiary,
+    },
+
+    modalActions: {
       flexDirection:
         'row',
 
